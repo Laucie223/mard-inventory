@@ -1,9 +1,169 @@
 <!DOCTYPE html>
+
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mard库存（Firebase联网同步版）</title>
+
+<style>
+body {
+  font-family: Arial;
+  padding: 20px;
+  background: #fafafa;
+}
+
+.container {
+  display: flex;
+  gap: 20px;
+}
+
+.big-panel {
+  flex: 2;
+  border: 1px solid #ccc;
+  padding: 15px;
+  border-radius: 10px;
+  background: white;
+}
+
+.small-panel {
+  width: 320px;
+  border: 1px solid #ccc;
+  padding: 15px;
+  border-radius: 10px;
+  background: white;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  max-height: 700px;
+  overflow-y: auto;
+}
+
+.group {
+  padding: 8px;
+  border-radius: 8px;
+}
+
+.group:nth-child(odd) {
+  background: #f7f7f7;
+}
+
+.group:nth-child(even) {
+  background: #eef2f7;
+}
+
+.group-title {
+  font-weight: bold;
+  margin-bottom: 6px;
+  border-bottom: 1px solid #ccc;
+  padding-bottom: 4px;
+}
+
+.cell {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.btn {
+  cursor: pointer;
+  margin-left: 4px;
+  padding: 1px 5px;
+  border: 1px solid #bbb;
+  border-radius: 4px;
+  background: white;
+}
+
+.btn:hover {
+  background: #f0f0f0;
+}
+
+.red {
+  color: red;
+}
+
+.log {
+  max-height: 250px;
+  overflow-y: auto;
+  font-size: 12px;
+}
+
+.log-add {
+  color: green;
+}
+
+.log-use {
+  color: red;
+}
+
+.hot {
+  color: #cc7a00;
+  font-weight: bold;
+  margin-bottom: 4px;
+}
+
+.del {
+  cursor: pointer;
+  margin-left: 6px;
+  color: gray;
+}
+
+.edit {
+  cursor: pointer;
+  margin-left: 6px;
+  color: blue;
+}
+
+@media (max-width: 900px) {
+  .container {
+    flex-direction: column;
+  }
+
+  .small-panel {
+    width: auto;
+  }
+
+  .grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+</style>
+
+</head>
+
+<body>
+
+<h2>Mard库存（Firebase联网同步版）</h2>
+
+<div class="container">
+
+<div class="big-panel">
+<h3>库存（点击库存可直接修改）</h3>
+
+<input id="search" placeholder="搜索色号" oninput="render()">
+
+<div id="list" class="grid"></div>
+</div>
+
+<div class="small-panel">
+
+<h3>高频豆（补豆 ≥ 3次）</h3>
+<div id="hot"></div>
+
+<h3>待补</h3>
+
+<input id="restockInput" placeholder="例如：M2 20">
 <button onclick="addRestock()">添加</button>
 <button onclick="restockAll()">一键入库</button>
+
 <ul id="restock"></ul>
 
-<h3>日志</h3>
+<h3>操作记录</h3>
 <div id="log" class="log"></div>
 
 </div>
@@ -17,7 +177,6 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/fireba
 import {
 getFirestore,
 doc,
-getDoc,
 setDoc,
 onSnapshot
 }
@@ -33,24 +192,174 @@ const firebaseConfig = {
   measurementId: "G-ZFM9PQXHB1"
 };
 
-window.quickUse = async function(c,a){
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
-inventory[c] = Math.max(0,(inventory[c]||0)-a);
+const dataRef = doc(db, "inventory", "main");
 
-logs.push({
-type:"use",
-text:`${c} -${a}g（使用）`
+const GROUPS = {
+A:26, B:32, C:29, D:26,
+E:24, F:25, G:21, H:23, M:15
+};
+
+let inventory = {};
+let restock = [];
+let logs = [];
+let refillCount = {};
+
+let lastAction = {};
+
+Object.entries(GROUPS).forEach(([l,c])=>{
+  for(let i=1;i<=c;i++){
+    let id = l+i;
+    inventory[id] = 10;
+  }
 });
 
-await save();
+onSnapshot(dataRef,(snap)=>{
+
+  if(snap.exists()){
+
+    const d = snap.data();
+
+    inventory = d.inventory || inventory;
+    restock = d.restock || [];
+    logs = d.logs || [];
+    refillCount = d.refillCount || {};
+
+    render();
+
+  }else{
+
+    save();
+
+  }
+
+});
+
+async function save(){
+
+  await setDoc(dataRef,{
+    inventory,
+    restock,
+    logs,
+    refillCount
+  });
+
+}
+
+function render(){
+
+const list = document.getElementById("list");
+const search = document.getElementById("search").value.toUpperCase();
+
+list.innerHTML = "";
+
+Object.entries(GROUPS).forEach(([letter,count])=>{
+
+let html = `
+<div class="group">
+<div class="group-title">${letter} 系列</div>
+`;
+
+for(let i=1;i<=count;i++){
+
+let id = letter+i;
+
+if(search && !id.includes(search)) continue;
+
+let val = inventory[id] || 0;
+
+html += `
+<div class="cell">
+
+<span>${id}</span>
+
+<span onclick="editInventory('${id}')"
+class="${val<20?'red':''}">
+${val}g
+</span>
+
+<span>
+<button class="btn" onclick="quickAdd('${id}',10)">+10</button>
+<button class="btn" onclick="quickUse('${id}',10)">-10</button>
+</span>
+
+</div>
+`;
+}
+
+html += `</div>`;
+
+list.innerHTML += html;
+
+});
+
+const hotDiv = document.getElementById("hot");
+
+hotDiv.innerHTML = "";
+
+Object.entries(refillCount).forEach(([k,v])=>{
+
+if(v >= 3){
+
+let div = document.createElement("div");
+
+div.className = "hot";
+
+div.innerText = `${k}（${v}次）`;
+
+hotDiv.appendChild(div);
+
+}
+
+});
+
+const r = document.getElementById("restock");
+
+r.innerHTML = "";
+
+restock.forEach((x,i)=>{
+
+const li = document.createElement("li");
+
+li.innerHTML = `
+${x.text}
+<span class="del" onclick="delRestock(${i})">✖</span>
+`;
+
+r.appendChild(li);
+
+});
+
+const logDiv = document.getElementById("log");
+
+logDiv.innerHTML = "";
+
+logs.slice().reverse().forEach((l,index)=>{
+
+const div = document.createElement("div");
+
+div.className =
+l.type === "add" ? "log-add" : "log-use";
+
+div.innerHTML = `
+${l.text}
+<span class="edit" onclick="editLog(${logs.length-1-index})">✎</span>
+<span class="del" onclick="delLog(${logs.length-1-index})">✖</span>
+`;
+
+logDiv.appendChild(div);
+
+});
 
 }
 
 window.editInventory = async function(c){
 
-let val = prompt(`修改 ${c} 库存`, inventory[c]);
+let val = prompt(`修改 ${c} 库存（g）`, inventory[c]||0);
 
-if(val!==null){
+if(val !== null){
 
 inventory[c] = parseInt(val)||0;
 
@@ -60,24 +369,125 @@ await save();
 
 }
 
+window.editLog = async function(i){
+
+let newText = prompt("修改记录", logs[i].text);
+
+if(newText !== null){
+
+logs[i].text = newText;
+
+await save();
+
+}
+
+}
+
+window.quickAdd = async function(c,a){
+
+let now = Date.now();
+
+if(
+lastAction[c] &&
+(now - lastAction[c].time < 1500)
+){
+
+let lastLog = logs[logs.length - 1];
+
+if(
+lastLog &&
+lastLog.type === "add" &&
+lastLog.color === c
+){
+
+inventory[c] += a;
+
+lastLog.amount += a;
+
+lastLog.text =
+`${c} +${lastLog.amount}g（第${lastLog.count}次补豆）`;
+
+}else{
+
+newAdd(c,a);
+
+}
+
+}else{
+
+newAdd(c,a);
+
+}
+
+lastAction[c] = { time: now };
+
+await save();
+
+}
+
+function newAdd(c,a){
+
+inventory[c] = (inventory[c]||0) + a;
+
+refillCount[c] = (refillCount[c]||0) + 1;
+
+logs.push({
+
+type:"add",
+
+text:`${c} +${a}g（第${refillCount[c]}次补豆）`,
+
+amount:a,
+
+count:refillCount[c],
+
+color:c
+
+});
+
+}
+
+window.quickUse = async function(c,a){
+
+inventory[c] = Math.max(0,(inventory[c]||0)-a);
+
+logs.push({
+
+type:"use",
+
+text:`${c} -${a}g（使用）`
+
+});
+
+await save();
+
+}
+
 window.addRestock = async function(){
 
-const raw = document.getElementById("restockInput")
+const raw =
+document.getElementById("restockInput")
 .value
 .toUpperCase()
 .trim();
 
 if(!raw) return;
 
-let parts = raw.replace("G","").split(" ");
+let parts =
+raw.replace("G","").split(" ");
 
 let color = parts[0];
+
 let amount = parseInt(parts[1]||10);
 
 restock.push({
+
 color,
+
 amount,
+
 text:`${color} ${amount}g`
+
 });
 
 await save();
@@ -95,7 +505,9 @@ await save();
 window.restockAll = async function(){
 
 restock.forEach(item=>{
+
 newAdd(item.color,item.amount);
+
 });
 
 restock = [];
@@ -103,6 +515,16 @@ restock = [];
 await save();
 
 }
+
+window.delLog = async function(i){
+
+logs.splice(i,1);
+
+await save();
+
+}
+
+render();
 
 </script>
 
