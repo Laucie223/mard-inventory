@@ -152,6 +152,10 @@ body {
 
 <div class="small-panel">
 
+<h3 id="detailTitle">选择一个色号</h3>
+<div id="detailInfo">点击左侧色号查看历史</div>
+<hr>
+
 <h3>高频豆（补豆 ≥ 3次）</h3>
 <div id="hot"></div>
 
@@ -208,6 +212,7 @@ let logs = [];
 let refillCount = {};
 
 let lastAction = {};
+let currentColor = null;
 
 Object.entries(GROUPS).forEach(([l,c])=>{
   for(let i=1;i<=c;i++){
@@ -250,6 +255,10 @@ async function save(){
 
 function render(){
 
+if(currentColor){
+  renderDetail(currentColor);
+}
+
 const list = document.getElementById("list");
 const search = document.getElementById("search").value.toUpperCase();
 
@@ -273,7 +282,7 @@ let val = inventory[id] || 0;
 html += `
 <div class="cell">
 
-<span>${id}</span>
+<span onclick="showDetail('${id}')" style="cursor:pointer;font-weight:bold;">${id}</span>
 
 <span onclick="editInventory('${id}')"
 class="${val<20?'red':''}">
@@ -455,7 +464,11 @@ logs.push({
 
 type:"use",
 
-text:`${c} -${a}g（使用）`
+text:`${c} -${a}g（使用）`,
+
+amount:a,
+
+color:c
 
 });
 
@@ -518,10 +531,67 @@ await save();
 
 window.delLog = async function(i){
 
+const log = logs[i];
+
+if(log){
+
+  if(log.type === "add"){
+    inventory[log.color] = Math.max(0,(inventory[log.color]||0) - (log.amount||0));
+  }
+
+  if(log.type === "use"){
+    inventory[log.color] = (inventory[log.color]||0) + (log.amount||0);
+  }
+
+}
+
 logs.splice(i,1);
 
 await save();
 
+}
+
+function renderDetail(color){
+
+currentColor = color;
+
+const title = document.getElementById("detailTitle");
+const info = document.getElementById("detailInfo");
+
+title.innerText = `${color} 详情`;
+
+const currentLogs = logs
+.filter(l=>l.color===color)
+.reverse();
+
+let html = `
+<div><b>当前库存：</b>${inventory[color]||0}g</div>
+<div style="margin-top:8px;"><b>历史记录：</b></div>
+`;
+
+if(currentLogs.length===0){
+  html += `<div>暂无记录</div>`;
+}else{
+
+currentLogs.forEach((l,index)=>{
+
+html += `
+<div style="margin-top:6px; font-size:13px; color:${l.type==='add'?'green':'red'};">
+${l.text}
+<span class="del" onclick="delLog(${logs.indexOf(l)})">✖</span>
+</div>
+`;
+
+});
+
+}
+
+info.innerHTML = html;
+
+}
+
+window.showDetail = function(color){
+  renderDetail(color);
 }
 
 render();
