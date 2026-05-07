@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<button onclick="addRestock()">添加</button>
+<button onclick="restockAll()">一键入库</button>
+<ul id="restock"></ul>
+
+<h3>日志</h3>
+<div id="log" class="log"></div>
+
+</div>
+
+</div>
+
+<script type="module">
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+
+import {
+getFirestore,
+doc,
+getDoc,
+setDoc,
+onSnapshot
+}
+from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDkLDNSfueOl1dRKgEqVyUo4B4uE0OdlG0",
+  authDomain: "beadartmanagement.firebaseapp.com",
+  projectId: "beadartmanagement",
+  storageBucket: "beadartmanagement.firebasestorage.app",
+  messagingSenderId: "33224286163",
+  appId: "1:33224286163:web:fc1494abb0a4eabbaa1926",
+  measurementId: "G-ZFM9PQXHB1"
+};
+
+window.quickUse = async function(c,a){
+
+inventory[c] = Math.max(0,(inventory[c]||0)-a);
+
+logs.push({
+type:"use",
+text:`${c} -${a}g（使用）`
+});
+
+await save();
+
+}
+
+window.editInventory = async function(c){
+
+let val = prompt(`修改 ${c} 库存`, inventory[c]);
+
+if(val!==null){
+
+inventory[c] = parseInt(val)||0;
+
+await save();
+
+}
+
+}
+
+window.addRestock = async function(){
+
+const raw = document.getElementById("restockInput")
+.value
+.toUpperCase()
+.trim();
+
+if(!raw) return;
+
+let parts = raw.replace("G","").split(" ");
+
+let color = parts[0];
+let amount = parseInt(parts[1]||10);
+
+restock.push({
+color,
+amount,
+text:`${color} ${amount}g`
+});
+
+await save();
+
+}
+
+window.delRestock = async function(i){
+
+restock.splice(i,1);
+
+await save();
+
+}
+
+window.restockAll = async function(){
+
+restock.forEach(item=>{
+newAdd(item.color,item.amount);
+});
+
+restock = [];
+
+await save();
+
+}
+
+</script>
+
+</body>
+</html>
